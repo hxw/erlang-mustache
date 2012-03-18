@@ -149,7 +149,7 @@ text_of(A, _Context) when is_atom(A) ->
 %% HTML escape
 %% ===========
 
-
+-spec quote(char()) -> string().
 quote($<) -> "&lt;";
 quote($>) -> "&gt;";
 quote($&) -> "&amp;";
@@ -158,7 +158,7 @@ quote($') -> "&apos;";
 quote(C) -> C.
 
 
--spec html_escape(binary() | string()) -> binary() | iolist().
+-spec html_escape(binary() | string()) -> iolist().
 %% @doc escape the key HTML/XML characters to their entity strings
 html_escape(Text) when is_list(Text) ->
     lists:map(fun quote/1, Text);
