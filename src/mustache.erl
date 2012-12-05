@@ -23,12 +23,12 @@
 %% rendering
 %% ==========
 
--spec render(string(), dict()) -> iolist().
+-spec render(string() | binary(), dict()) -> iolist().
 %% @doc given a binary utf8 string as a template
 %%      and a context dictionary render a mustache template
 render(Template, Context) ->
-    {ok, Section_RE} = re:compile("^(.*?)\\{\\{([#^])\\s*([^\}]+)\\s*\\}\\}\\s*(.+?)\\{\\{/\\s*\\3\\s*\\}\\}\\s*(.*)", [dotall, unicode]),
-    {ok, Variable_RE} = re:compile("^(.*?)(?|\\{\\{(\\{)\\s*([^\}]+)\\s*\\}\\}\\}|\\{\\{([&!>])?\\s*([^\}]+)\\s*\\}\\})(.*)", [dotall, unicode]),
+    {ok, Section_RE} = re:compile("^(.*?)\\{\\{\\s*([#^])\\s*([^\}]*[^\}\\s])\\s*\\}\\}\\s*(.+?)\\{\\{\\s*/\\s*\\3\\s*\\}\\}\\s*(.*)", [dotall, unicode]),
+    {ok, Variable_RE} = re:compile("^(.*?)(?|\\{\\{(\\{)\\s*([^\}]*[^\}\\s])\\s*\\}\\}\\}|\\{\\{([&!>])?\\s*([^\}]*[^\}\\s])\\s*\\}\\})(.*)", [dotall, unicode]),
     State = #render_state{context = Context,
                           section_re = Section_RE,
                           variable_re = Variable_RE},
@@ -37,13 +37,11 @@ render(Template, Context) ->
 
 process_sections(Template, Context, State) ->
     M = re:run(Template, State#render_state.section_re, [{capture, all, list}]),
-    io:format("M = ~p~n", [M]),
     case M of
         nomatch ->
             expand_variables(Template, Context, State);
 
         {match, [_,  Before_Str, Tag_Char, Section_Name, Section_Str, After_Str]} ->
-            io:format("SN = ~p~n", [Section_Name]),
             [ process_sections(Before_Str, Context, State),
               expand_section(Tag_Char, Section_Name, Section_Str, Context, State),
               process_sections(After_Str, Context, State) ]
@@ -60,15 +58,12 @@ expand_section("^", Name, Section_Str, Context, State) ->
     end;
 
 expand_section("#", Name, Section_Str, Context, State) ->
-    io:format("X(~p) => ~p~n", [Name, Section_Str]),
-
     case value_of(Name, Context) of
         F when F =:= false; F =:= none; F =:= undefined; F =:= []; F =:= <<>>; F =:= 0 ->
             [""];
         [H | _T] = L when is_tuple(H) ->
             lists:map(
               fun({SubContext}) ->
-                      io:format("X=~p~n", [SubContext]),
                       process_sections(Section_Str, SubContext, State)
               end, L);
         {D} ->
@@ -85,7 +80,6 @@ expand_section("#", Name, Section_Str, Context, State) ->
 
 expand_variables(Template, Context, State) ->
     M2 = re:run(Template, State#render_state.variable_re, [{capture, all, list}]),
-    io:format("M2 = ~p~n", [M2]),
     case M2 of
         nomatch ->
             [Template];
@@ -185,6 +179,24 @@ basic_test() ->
     ok.
 
 
+binary_basic_test() ->
+    Template = <<"Hello {{name}},\ndid you see {{friend}}?\n">>,
+    Context = dict:from_list([{name, <<"Galla">>},
+                               {friend, <<"Pictrix">>}]),
+    Result = "Hello Galla,\ndid you see Pictrix?\n",
+    ?assertEqual(Result, rts(Template, Context)),
+    ok.
+
+
+ignore_spaces_test() ->
+    Template = "Hello {{  name  }},\ndid you see {{ friend }}?\n",
+    Context = dict:from_list([{name, <<"Galla">>},
+                               {friend, <<"Pictrix">>}]),
+    Result = "Hello Galla,\ndid you see Pictrix?\n",
+    ?assertEqual(Result, rts(Template, Context)),
+    ok.
+
+
 basic_utf8_test() ->
     Template = "English -> " ++ [22283,35486] ++ "\nToday's Weather {{weather}}\nTomorrow's Weather {{mrtq}}",
     Context = dict:from_list([{weather, unicode:characters_to_binary([20170,26085,22825,27683])},
@@ -198,6 +210,20 @@ basic_utf8_test() ->
 
 iteration_test() ->
     Template = "{{#items}}\nHello {{name}},\ndid you see {{friend}}?\n{{/items}}\n",
+    Context =
+        dict:from_list([{items, [{dict:from_list([{name, <<"Galla">>},
+                                                  {friend, <<"Pictrix">>}])},
+                                 {dict:from_list([{name, "Paeta"},
+                                                 {friend, "Antonia Thallusa"}])}]}]),
+    Result =
+        "Hello Galla,\ndid you see Pictrix?\n" ++
+        "Hello Paeta,\ndid you see Antonia Thallusa?\n",
+    ?assertEqual(Result, rts(Template, Context)),
+    ok.
+
+
+iteration_ignore_spaces_test() ->
+    Template = "{{ # items }}\nHello {{ name }},\ndid you see {{ friend }}?\n{{ / items }}\n",
     Context =
         dict:from_list([{items, [{dict:from_list([{name, <<"Galla">>},
                                                   {friend, <<"Pictrix">>}])},
