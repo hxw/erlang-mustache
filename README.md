@@ -24,6 +24,7 @@ The Context is a dictionary:
     * Function/2 areguments Template and Render function (Section)
     * Dictionary in single element tuple (Section)
     * List of dictionaries in single element tuple (Section)
+    * Property List `[{atom()|string(), any()}]` (Section)
 
 
 ## Notes

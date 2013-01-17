@@ -66,6 +66,11 @@ expand_section("#", Name, Section_Str, Context, State) ->
               fun({SubContext}) ->
                       process_sections(Section_Str, SubContext, State)
               end, L);
+        [[H | _T1] | _T2] = L when is_tuple(H) ->
+            lists:map(
+              fun(SubContext) ->
+                      process_sections(Section_Str, SubContext, State)
+              end, L);
         {D} ->
             process_sections(Section_Str, D, State);
         Fn when is_function(Fn) ->
@@ -101,9 +106,17 @@ expand_variables(Template, Context, State) ->
     end.
 
 
--spec value_of(string(), dict()) -> any().
+-spec value_of(string(), dict() | [{atom(), any()}]) -> any().
 %% @doc return the value of a context item
 %%      missing variables produce 'undefined'
+value_of(Name, Context) when is_list(Context) ->
+    case proplists:get_value(Name, Context) of
+        undefined ->
+            proplists:get_value(list_to_atom(Name), Context);
+        V ->
+            V
+    end;
+
 value_of(Name, Context) ->
     case dict:find(Name, Context) of
         {ok, Value} ->
@@ -170,31 +183,29 @@ rts(Template, Context) ->
     unicode:characters_to_list(render(Template, Context), unicode).
 
 
-basic_test() ->
+basic_test_() ->
     Template = "Hello {{name}},\ndid you see {{friend}}?\n",
-    Context = dict:from_list([{name, <<"Galla">>},
-                               {friend, <<"Pictrix">>}]),
+    Context =
+        [{name, "Galla"},
+         {friend, "Pictrix"}],
+    Context_Binary =
+        [{name, <<"Galla">>},
+         {friend, <<"Pictrix">>}],
     Result = "Hello Galla,\ndid you see Pictrix?\n",
-    ?assertEqual(Result, rts(Template, Context)),
-    ok.
+    [?_assertEqual(Result, rts(Template, Context)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context))),
+     ?_assertEqual(Result, rts(Template, Context_Binary)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context_Binary)))].
 
 
-binary_basic_test() ->
-    Template = <<"Hello {{name}},\ndid you see {{friend}}?\n">>,
-    Context = dict:from_list([{name, <<"Galla">>},
-                               {friend, <<"Pictrix">>}]),
-    Result = "Hello Galla,\ndid you see Pictrix?\n",
-    ?assertEqual(Result, rts(Template, Context)),
-    ok.
-
-
-ignore_spaces_test() ->
+ignore_spaces_test_() ->
     Template = "Hello {{  name  }},\ndid you see {{ friend }}?\n",
-    Context = dict:from_list([{name, <<"Galla">>},
-                               {friend, <<"Pictrix">>}]),
+    Context =
+        [{name, <<"Galla">>},
+         {friend, <<"Pictrix">>}],
     Result = "Hello Galla,\ndid you see Pictrix?\n",
-    ?assertEqual(Result, rts(Template, Context)),
-    ok.
+    [?_assertEqual(Result, rts(Template, Context)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context)))].
 
 
 basic_utf8_test() ->
@@ -215,6 +226,20 @@ iteration_test() ->
                                                   {friend, <<"Pictrix">>}])},
                                  {dict:from_list([{name, "Paeta"},
                                                  {friend, "Antonia Thallusa"}])}]}]),
+    Result =
+        "Hello Galla,\ndid you see Pictrix?\n" ++
+        "Hello Paeta,\ndid you see Antonia Thallusa?\n",
+    ?assertEqual(Result, rts(Template, Context)),
+    ok.
+
+
+iteration_proplist_test() ->
+    Template = "{{#items}}\nHello {{name}},\ndid you see {{friend}}?\n{{/items}}\n",
+    Context =
+        [{items, [[{name, <<"Galla">>},
+                   {friend, <<"Pictrix">>}],
+                  [{name, "Paeta"},
+                   {friend, "Antonia Thallusa"}]]}],
     Result =
         "Hello Galla,\ndid you see Pictrix?\n" ++
         "Hello Paeta,\ndid you see Antonia Thallusa?\n",
@@ -283,7 +308,48 @@ nested_iteration_test() ->
     ok.
 
 
-true_false_test() ->
+nested_propertylist_iteration_test() ->
+    Template =
+        "{{#data}}\n" ++
+        "Greet: {{group}}\n" ++
+        "{{#items}}\nHello {{name}},\ndid you see {{friend}}?\n{{/items}}\n" ++
+        "Find: {{group}}\n" ++
+        "{{#items}}\nHey {{friend}},\nwhere is {{name}}?\n{{/items}}\n" ++
+        "{{/data}}\n",
+    Context =
+        [{data,
+          [[{group, "1"},
+            {items, [[{name, <<"Galla">>},
+                      {friend, <<"Pictrix">>}],
+                     [{name, "Paeta"},
+                      {friend, "Antonia Thallusa"}]]}],
+
+           [{group, "2"},
+            {items, [[{name, <<"Epicydilla">>},
+                       {friend, <<"Drusilla">>}],
+                      [{name, "Claudia Helvia"},
+                       {friend, "Julia Livilla"}]]}]]}],
+
+    Result =
+        "Greet: 1\n" ++
+        "Hello Galla,\ndid you see Pictrix?\n" ++
+        "Hello Paeta,\ndid you see Antonia Thallusa?\n" ++
+        "Find: 1\n" ++
+        "Hey Pictrix,\nwhere is Galla?\n" ++
+        "Hey Antonia Thallusa,\nwhere is Paeta?\n" ++
+
+        "Greet: 2\n" ++
+        "Hello Epicydilla,\ndid you see Drusilla?\n" ++
+        "Hello Claudia Helvia,\ndid you see Julia Livilla?\n" ++
+        "Find: 2\n" ++
+        "Hey Drusilla,\nwhere is Epicydilla?\n" ++
+        "Hey Julia Livilla,\nwhere is Claudia Helvia?\n",
+
+    ?assertEqual(Result, rts(Template, Context)),
+    ok.
+
+
+true_false_test_() ->
     Template =
         "{{#t_flag}}\n" ++
         "t_flag yes\n" ++
@@ -348,16 +414,15 @@ true_false_test() ->
         "not_defined yes\n" ++
         "{{/not_defined}}\n",
     Context =
-        dict:from_list(
-          [{t_flag, true},
-           {f_flag, false},
-           {empty_list, []},
-           {empty_str, ""},
-           {empty_bin, <<>>},
-           {int, 99},
-           {str, "asd"},
-           {obj, dict:from_list([{group, "1"}])},
-           {bin, <<"asd">>}]),
+        [{t_flag, true},
+         {f_flag, false},
+         {empty_list, []},
+         {empty_str, ""},
+         {empty_bin, <<>>},
+         {int, 99},
+         {str, "asd"},
+         {obj, dict:from_list([{group, "1"}])},
+         {bin, <<"asd">>}],
 
     Result =
         "t_flag yes\n" ++
@@ -370,8 +435,8 @@ true_false_test() ->
         "obj yes\n" ++
         "not_defined yes\n",
 
-    ?assertEqual(Result, rts(Template, Context)),
-    ok.
+    [?_assertEqual(Result, rts(Template, Context)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context)))].
 
 
 single_dict_test() ->
@@ -392,49 +457,49 @@ single_dict_test() ->
     ok.
 
 
-comment_test() ->
+comment_test_() ->
     Template =
         "{{!ignore this}}Hello {{name}} world {{!name}}\n",
 
     Context =
-        dict:from_list([{name, "green"},
-                        {"ignore this", "purple"}]),
+        [{name, "green"},
+         {"ignore this", "purple"}],
     Result =
         "Hello green world \n",
 
-    ?assertEqual(Result, rts(Template, Context)),
-    ok.
+    [?_assertEqual(Result, rts(Template, Context)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context)))].
 
 
-escape_test() ->
+escape_test_() ->
     Template =
         "{{{name}}} {{name}} {{&name}}\n",
 
     Context =
-        dict:from_list([{name, "<b>green</b>"},
-                        {item, "purple"}]),
+        [{name, "<b>green</b>"},
+         {item, "purple"}],
     Result =
         "<b>green</b> &lt;b&gt;green&lt;/b&gt; <b>green</b>\n",
 
-    ?assertEqual(Result, rts(Template, Context)),
-    ok.
+    [?_assertEqual(Result, rts(Template, Context)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context)))].
 
 
 a_func(_Context) ->
     "hello there!".
 
-function_test() ->
+function_test_() ->
     Template =
         "{{f1}} {{f2}}\n",
 
     Context =
-        dict:from_list([{f1, fun(_C) -> "Hi," end},
-                        {f2, fun a_func/1}]),
+        [{f1, fun(_C) -> "Hi," end},
+         {f2, fun a_func/1}],
     Result =
         "Hi, hello there!\n",
 
-    ?assertEqual(Result, rts(Template, Context)),
-    ok.
+    [?_assertEqual(Result, rts(Template, Context)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context)))].
 
 
 partial_test() ->
