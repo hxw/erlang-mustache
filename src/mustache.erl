@@ -11,7 +11,10 @@
 
 %% exports
 -export([render/2]).
+-export([render_file/2]).
 -export([html_escape/1]).
+
+-export_type([context_type/0]).
 
 %% records
 -record(render_state, {
@@ -19,11 +22,30 @@
           section_re,
           variable_re}).
 
+%% types
+-type context_type() :: dict() | [{atom() | string(), any()}].
+
+
+%% file rendering
+%% ==============
+
+-spec render_file(string() | binary(), context_type()) -> {ok, iolist()} | {error, term()}.
+%% @doc given a path to a file as a template
+%%      and a context dictionary render a mustache template
+render_file(Template_File_Name, Context) ->
+    case file:read_file(Template_File_Name) of
+        {ok, Template} ->
+            {ok, render(Template, Context)};
+
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 
 %% rendering
-%% ==========
+%% =========
 
--spec render(string() | binary(), dict()) -> iolist().
+-spec render(string() | binary(), context_type()) -> iolist().
 %% @doc given a binary utf8 string as a template
 %%      and a context dictionary render a mustache template
 render(Template, Context) ->
@@ -106,7 +128,7 @@ expand_variables(Template, Context, State) ->
     end.
 
 
--spec value_of(string(), dict() | [{atom(), any()}]) -> any().
+-spec value_of(string(), context_type() | [{atom(), any()}]) -> any().
 %% @doc return the value of a context item
 %%      missing variables produce 'undefined'
 value_of(Name, Context) when is_list(Context) ->
@@ -131,13 +153,13 @@ value_of(Name, Context) ->
     end.
 
 
--spec text_helper(string(), dict()) -> any().
+-spec text_helper(string(), context_type()) -> any().
 %% @doc helper
 text_helper(Name, Context) ->
     text_of(value_of(Name, Context), Context).
 
 
--spec text_of(any(), dict()) -> string() | binary().
+-spec text_of(any(), context_type()) -> string() | binary().
 %% @doc convert value to string
 text_of(I, _Context) when is_integer(I) ->
     io_lib:format("~b", [I]);
@@ -183,6 +205,15 @@ rts(Template, Context) ->
     unicode:characters_to_list(render(Template, Context), unicode).
 
 
+rtf(Template_File_Name, Context) ->
+    case render_file(Template_File_Name, Context) of
+        {ok, Result} ->
+            unicode:characters_to_list(Result, unicode);
+        Error ->
+            Error
+    end.
+
+
 basic_test_() ->
     Template = "Hello {{name}},\ndid you see {{friend}}?\n",
     Context =
@@ -196,6 +227,21 @@ basic_test_() ->
      ?_assertEqual(Result, rts(Template, dict:from_list(Context))),
      ?_assertEqual(Result, rts(Template, Context_Binary)),
      ?_assertEqual(Result, rts(Template, dict:from_list(Context_Binary)))].
+
+
+
+file_test_() ->
+    Template_File_Name = "../src/test1.mustache",
+    Non_Existant_File_Name = "non-existant-file",
+    Context =
+        [{name, "Galla"},
+         {friend, "Pictrix"}],
+    Result = "Hello Galla,\ndid you see Pictrix?\n",
+    Result_NE = {error, enoent},
+    [?_assertEqual(Result, rtf(Template_File_Name, Context)),
+     ?_assertEqual(Result, rtf(Template_File_Name, dict:from_list(Context))),
+     ?_assertEqual(Result_NE, rtf(Non_Existant_File_Name, Context)),
+     ?_assertEqual(Result_NE, rtf(Non_Existant_File_Name, dict:from_list(Context)))].
 
 
 ignore_spaces_test_() ->
