@@ -131,15 +131,32 @@ expand_variables(Template, Context, State) ->
 -spec value_of(string(), context_type() | [{atom(), any()}]) -> any().
 %% @doc return the value of a context item
 %%      missing variables produce 'undefined'
-value_of(Name, Context) when is_list(Context) ->
+value_of(Name, Context) ->
+    case value_of_2(Name, Context) of
+        [H | _] = L when is_tuple(H) andalso size(H) =:= 2 ->
+            [L];
+        X ->
+            X
+    end.
+
+
+-spec value_of_2(string(), context_type() | [{atom(), any()}]) -> any().
+%% @doc return the value of a context item
+%%      missing variables produce 'undefined'
+value_of_2(Name, Context) when is_list(Context) ->
     case proplists:get_value(Name, Context) of
         undefined ->
-            proplists:get_value(list_to_atom(Name), Context);
-        V ->
-            V
+            case proplists:get_value(list_to_atom(Name), Context) of
+                undefined ->
+                    proplists:get_value(list_to_binary(Name), Context);
+                Value1 ->
+                    Value1
+            end;
+        Value ->
+            Value
     end;
 
-value_of(Name, Context) ->
+value_of_2(Name, Context) ->
     case dict:find(Name, Context) of
         {ok, Value} ->
             Value;
@@ -148,7 +165,12 @@ value_of(Name, Context) ->
                 {ok, Value} ->
                     Value;
                 error ->
-                    undefined
+                    case dict:find(list_to_binary(Name), Context) of
+                        {ok, Value} ->
+                            Value;
+                        error ->
+                            undefined
+                    end
             end
     end.
 
@@ -222,11 +244,21 @@ basic_test_() ->
     Context_Binary =
         [{name, <<"Galla">>},
          {friend, <<"Pictrix">>}],
+    Context_Binary_Keys =
+        [{<<"name">>, <<"Galla">>},
+         {<<"friend">>, <<"Pictrix">>}],
+    Context_String_Keys =
+        [{"name", <<"Galla">>},
+         {"friend", <<"Pictrix">>}],
     Result = "Hello Galla,\ndid you see Pictrix?\n",
     [?_assertEqual(Result, rts(Template, Context)),
      ?_assertEqual(Result, rts(Template, dict:from_list(Context))),
      ?_assertEqual(Result, rts(Template, Context_Binary)),
-     ?_assertEqual(Result, rts(Template, dict:from_list(Context_Binary)))].
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context_Binary))),
+     ?_assertEqual(Result, rts(Template, Context_Binary_Keys)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context_Binary_Keys))),
+     ?_assertEqual(Result, rts(Template, Context_String_Keys)),
+     ?_assertEqual(Result, rts(Template, dict:from_list(Context_String_Keys)))].
 
 
 
@@ -273,7 +305,7 @@ iteration_test() ->
                                  {dict:from_list([{name, "Paeta"},
                                                  {friend, "Antonia Thallusa"}])}]}]),
     Result =
-        "Hello Galla,\ndid you see Pictrix?\n" ++
+        "Hello Galla,\ndid you see Pictrix?\n"
         "Hello Paeta,\ndid you see Antonia Thallusa?\n",
     ?assertEqual(Result, rts(Template, Context)),
     ok.
@@ -287,7 +319,7 @@ iteration_proplist_test() ->
                   [{name, "Paeta"},
                    {friend, "Antonia Thallusa"}]]}],
     Result =
-        "Hello Galla,\ndid you see Pictrix?\n" ++
+        "Hello Galla,\ndid you see Pictrix?\n"
         "Hello Paeta,\ndid you see Antonia Thallusa?\n",
     ?assertEqual(Result, rts(Template, Context)),
     ok.
@@ -301,7 +333,7 @@ iteration_ignore_spaces_test() ->
                                  {dict:from_list([{name, "Paeta"},
                                                  {friend, "Antonia Thallusa"}])}]}]),
     Result =
-        "Hello Galla,\ndid you see Pictrix?\n" ++
+        "Hello Galla,\ndid you see Pictrix?\n"
         "Hello Paeta,\ndid you see Antonia Thallusa?\n",
     ?assertEqual(Result, rts(Template, Context)),
     ok.
@@ -309,11 +341,11 @@ iteration_ignore_spaces_test() ->
 
 nested_iteration_test() ->
     Template =
-        "{{#data}}\n" ++
-        "Greet: {{group}}\n" ++
-        "{{#items}}\nHello {{name}},\ndid you see {{friend}}?\n{{/items}}\n" ++
-        "Find: {{group}}\n" ++
-        "{{#items}}\nHey {{friend}},\nwhere is {{name}}?\n{{/items}}\n" ++
+        "{{#data}}\n"
+        "Greet: {{group}}\n"
+        "{{#items}}\nHello {{name}},\ndid you see {{friend}}?\n{{/items}}\n"
+        "Find: {{group}}\n"
+        "{{#items}}\nHey {{friend}},\nwhere is {{name}}?\n{{/items}}\n"
         "{{/data}}\n",
     Context =
         dict:from_list(
@@ -336,31 +368,67 @@ nested_iteration_test() ->
             ]}]),
 
     Result =
-        "Greet: 1\n" ++
-        "Hello Galla,\ndid you see Pictrix?\n" ++
-        "Hello Paeta,\ndid you see Antonia Thallusa?\n" ++
-        "Find: 1\n" ++
-        "Hey Pictrix,\nwhere is Galla?\n" ++
-        "Hey Antonia Thallusa,\nwhere is Paeta?\n" ++
+        "Greet: 1\n"
+        "Hello Galla,\ndid you see Pictrix?\n"
+        "Hello Paeta,\ndid you see Antonia Thallusa?\n"
+        "Find: 1\n"
+        "Hey Pictrix,\nwhere is Galla?\n"
+        "Hey Antonia Thallusa,\nwhere is Paeta?\n"
 
-        "Greet: 2\n" ++
-        "Hello Epicydilla,\ndid you see Drusilla?\n" ++
-        "Hello Claudia Helvia,\ndid you see Julia Livilla?\n" ++
-        "Find: 2\n" ++
-        "Hey Drusilla,\nwhere is Epicydilla?\n" ++
+        "Greet: 2\n"
+        "Hello Epicydilla,\ndid you see Drusilla?\n"
+        "Hello Claudia Helvia,\ndid you see Julia Livilla?\n"
+        "Find: 2\n"
+        "Hey Drusilla,\nwhere is Epicydilla?\n"
         "Hey Julia Livilla,\nwhere is Claudia Helvia?\n",
 
     ?assertEqual(Result, rts(Template, Context)),
     ok.
 
 
+nested_propertylist_test_() ->
+    Template =
+        "{{#a}}Hello {{name}}, did you see {{friend}}?\n{{/a}}"
+        "{{#b}}Hey {{friend}}, where is {{name}}?\n{{/b}}"
+        "{{#c}}Hello {{name}}, did you see {{friend}}?\n{{/c}}"
+        "{{#d}}Hey {{friend}}, where is {{name}}?\n{{/d}}",
+    Context =
+          [{a, [{name, <<"Galla">>},
+                {friend, <<"Pictrix">>}]},
+           {b, [{name, "Paeta"},
+                {friend, "Antonia Thallusa"}]},
+           {c, [{name, <<"Epicydilla">>},
+                {friend, <<"Drusilla">>}]},
+           {d, [{name, "Claudia Helvia"},
+                {friend, "Julia Livilla"}]}],
+
+    Context_Binary =
+          [{<<"a">>, [{<<"name">>, <<"Galla">>},
+                {friend, <<"Pictrix">>}]},
+           {<<"b">>, [{<<"name">>, "Paeta"},
+                {friend, "Antonia Thallusa"}]},
+           {<<"c">>, [{<<"name">>, <<"Epicydilla">>},
+                {friend, <<"Drusilla">>}]},
+           {<<"d">>, [{<<"name">>, "Claudia Helvia"},
+                {friend, "Julia Livilla"}]}],
+
+    Result =
+        "Hello Galla, did you see Pictrix?\n"
+        "Hey Antonia Thallusa, where is Paeta?\n"
+        "Hello Epicydilla, did you see Drusilla?\n"
+        "Hey Julia Livilla, where is Claudia Helvia?\n",
+
+    [?_assertEqual(Result, rts(Template, Context)),
+     ?_assertEqual(Result, rts(Template, Context))].
+
+
 nested_propertylist_iteration_test() ->
     Template =
-        "{{#data}}\n" ++
-        "Greet: {{group}}\n" ++
-        "{{#items}}\nHello {{name}},\ndid you see {{friend}}?\n{{/items}}\n" ++
-        "Find: {{group}}\n" ++
-        "{{#items}}\nHey {{friend}},\nwhere is {{name}}?\n{{/items}}\n" ++
+        "{{#data}}\n"
+        "Greet: {{group}}\n"
+        "{{#items}}\nHello {{name}},\ndid you see {{friend}}?\n{{/items}}\n"
+        "Find: {{group}}\n"
+        "{{#items}}\nHey {{friend}},\nwhere is {{name}}?\n{{/items}}\n"
         "{{/data}}\n",
     Context =
         [{data,
@@ -377,18 +445,18 @@ nested_propertylist_iteration_test() ->
                        {friend, "Julia Livilla"}]]}]]}],
 
     Result =
-        "Greet: 1\n" ++
-        "Hello Galla,\ndid you see Pictrix?\n" ++
-        "Hello Paeta,\ndid you see Antonia Thallusa?\n" ++
-        "Find: 1\n" ++
-        "Hey Pictrix,\nwhere is Galla?\n" ++
-        "Hey Antonia Thallusa,\nwhere is Paeta?\n" ++
+        "Greet: 1\n"
+        "Hello Galla,\ndid you see Pictrix?\n"
+        "Hello Paeta,\ndid you see Antonia Thallusa?\n"
+        "Find: 1\n"
+        "Hey Pictrix,\nwhere is Galla?\n"
+        "Hey Antonia Thallusa,\nwhere is Paeta?\n"
 
-        "Greet: 2\n" ++
-        "Hello Epicydilla,\ndid you see Drusilla?\n" ++
-        "Hello Claudia Helvia,\ndid you see Julia Livilla?\n" ++
-        "Find: 2\n" ++
-        "Hey Drusilla,\nwhere is Epicydilla?\n" ++
+        "Greet: 2\n"
+        "Hello Epicydilla,\ndid you see Drusilla?\n"
+        "Hello Claudia Helvia,\ndid you see Julia Livilla?\n"
+        "Find: 2\n"
+        "Hey Drusilla,\nwhere is Epicydilla?\n"
         "Hey Julia Livilla,\nwhere is Claudia Helvia?\n",
 
     ?assertEqual(Result, rts(Template, Context)),
@@ -397,67 +465,67 @@ nested_propertylist_iteration_test() ->
 
 true_false_test_() ->
     Template =
-        "{{#t_flag}}\n" ++
-        "t_flag yes\n" ++
-        "{{/t_flag}}\n" ++
-        "{{^t_flag}}\n" ++
-        "t_flag no\n" ++
-        "{{/t_flag}}\n" ++
+        "{{#t_flag}}\n"
+        "t_flag yes\n"
+        "{{/t_flag}}\n"
+        "{{^t_flag}}\n"
+        "t_flag no\n"
+        "{{/t_flag}}\n"
 
-        "{{#f_flag}}\n" ++
-        "f_flag no\n" ++
-        "{{/f_flag}}\n" ++
-        "{{^f_flag}}\n" ++
-        "f_flag yes\n" ++
-        "{{/f_flag}}\n" ++
+        "{{#f_flag}}\n"
+        "f_flag no\n"
+        "{{/f_flag}}\n"
+        "{{^f_flag}}\n"
+        "f_flag yes\n"
+        "{{/f_flag}}\n"
 
-        "{{#empty_list}}\n" ++
-        "empty_list no\n" ++
-        "{{/empty_list}}\n" ++
-        "{{^empty_list}}\n" ++
-        "empty_list yes\n" ++
-        "{{/empty_list}}\n" ++
+        "{{#empty_list}}\n"
+        "empty_list no\n"
+        "{{/empty_list}}\n"
+        "{{^empty_list}}\n"
+        "empty_list yes\n"
+        "{{/empty_list}}\n"
 
-        "{{#empty_str}}\n" ++
-        "empty_str no\n" ++
-        "{{/empty_str}}\n" ++
-        "{{^empty_str}}\n" ++
-        "empty_str yes\n" ++
-        "{{/empty_str}}\n" ++
+        "{{#empty_str}}\n"
+        "empty_str no\n"
+        "{{/empty_str}}\n"
+        "{{^empty_str}}\n"
+        "empty_str yes\n"
+        "{{/empty_str}}\n"
 
-        "{{#str}}\n" ++
-        "str yes\n" ++
-        "{{/str}}\n" ++
-        "{{^str}}\n" ++
-        "str no\n" ++
-        "{{/str}}\n" ++
+        "{{#str}}\n"
+        "str yes\n"
+        "{{/str}}\n"
+        "{{^str}}\n"
+        "str no\n"
+        "{{/str}}\n"
 
-        "{{#empty_bin}}\n" ++
-        "empty_bin no\n" ++
-        "{{/empty_bin}}\n" ++
-        "{{^empty_bin}}\n" ++
-        "empty_bin yes\n" ++
-        "{{/empty_bin}}\n" ++
+        "{{#empty_bin}}\n"
+        "empty_bin no\n"
+        "{{/empty_bin}}\n"
+        "{{^empty_bin}}\n"
+        "empty_bin yes\n"
+        "{{/empty_bin}}\n"
 
-        "{{#bin}}\n" ++
-        "bin yes\n" ++
-        "{{/bin}}\n" ++
-        "{{^bin}}\n" ++
-        "bin no\n" ++
-        "{{/bin}}\n" ++
+        "{{#bin}}\n"
+        "bin yes\n"
+        "{{/bin}}\n"
+        "{{^bin}}\n"
+        "bin no\n"
+        "{{/bin}}\n"
 
-        "{{#obj}}\n" ++
-        "obj yes\n" ++
-        "{{/obj}}\n" ++
-        "{{^obj}}\n" ++
-        "obj no\n" ++
-        "{{/obj}}\n" ++
+        "{{#obj}}\n"
+        "obj yes\n"
+        "{{/obj}}\n"
+        "{{^obj}}\n"
+        "obj no\n"
+        "{{/obj}}\n"
 
-        "{{#not_defined}}\n" ++
-        "not_defined no\n" ++
-        "{{/not_defined}}\n" ++
-        "{{^not_defined}}\n" ++
-        "not_defined yes\n" ++
+        "{{#not_defined}}\n"
+        "not_defined no\n"
+        "{{/not_defined}}\n"
+        "{{^not_defined}}\n"
+        "not_defined yes\n"
         "{{/not_defined}}\n",
     Context =
         [{t_flag, true},
@@ -471,14 +539,14 @@ true_false_test_() ->
          {bin, <<"asd">>}],
 
     Result =
-        "t_flag yes\n" ++
-        "f_flag yes\n" ++
-        "empty_list yes\n" ++
-        "empty_str yes\n" ++
-        "str yes\n" ++
-        "empty_bin yes\n" ++
-        "bin yes\n" ++
-        "obj yes\n" ++
+        "t_flag yes\n"
+        "f_flag yes\n"
+        "empty_list yes\n"
+        "empty_str yes\n"
+        "str yes\n"
+        "empty_bin yes\n"
+        "bin yes\n"
+        "obj yes\n"
         "not_defined yes\n",
 
     [?_assertEqual(Result, rts(Template, Context)),
@@ -487,7 +555,7 @@ true_false_test_() ->
 
 single_dict_test() ->
     Template =
-        "{{#one}}\nHello {{name}},\ndid you see {{friend}}?\n{{/one}}\n" ++
+        "{{#one}}\nHello {{name}},\ndid you see {{friend}}?\n{{/one}}\n"
         "{{#two}}\nHey {{friend}},\nwhere is {{name}}?\n{{/two}}\n",
 
     Context =
@@ -496,7 +564,7 @@ single_dict_test() ->
                         {two, {dict:from_list([{name, "Paeta"},
                                                {friend, "Antonia Thallusa"}])}}]),
     Result =
-        "Hello Galla,\ndid you see Pictrix?\n" ++
+        "Hello Galla,\ndid you see Pictrix?\n"
         "Hey Antonia Thallusa,\nwhere is Paeta?\n",
 
     ?assertEqual(Result, rts(Template, Context)),
@@ -550,8 +618,8 @@ function_test_() ->
 
 partial_test() ->
     Template =
-        "{{#data}}\n" ++
-        "{{>format}}\n" ++
+        "{{#data}}\n"
+        "{{>format}}\n"
         "{{/data}}\n",
 
     Context =
@@ -568,10 +636,10 @@ partial_test() ->
 
 wrapper_test() ->
     Template =
-        "{{#wrap}}\n" ++
-        "{{#data}}\n" ++
-        "Hello {{name}}!\n" ++
-        "{{/data}}\n" ++
+        "{{#wrap}}\n"
+        "{{#data}}\n"
+        "Hello {{name}}!\n"
+        "{{/data}}\n"
         "{{/wrap}}\n",
 
     Context =
