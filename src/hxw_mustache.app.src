@@ -1,0 +1,8 @@
+{application, hxw_mustache ,
+ [{description, "render mustache templates"},
+  {vsn, "1"},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel, stdlib]},
+  {env, []}
+]}.

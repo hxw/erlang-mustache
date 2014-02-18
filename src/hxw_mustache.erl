@@ -1,4 +1,4 @@
-%% mustache.erl
+%% hxw_mustache.erl
 %%%
 %%% @author Christopher Hall <hsw@ms2.hinet.net>
 %%% @copyright 2012 Christopher Hall <hsw@ms2.hinet.net>
@@ -6,7 +6,7 @@
 %%%
 %%% @doc erlang implementation of mustache
 
--module(mustache).
+-module(hxw_mustache).
 -author("Christopher Hall <hsw@ms2.hinet.net>").
 
 %% exports

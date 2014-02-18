@@ -32,3 +32,6 @@ The Context is a dictionary:
 Erlang dictionaries are system specific and cannot reliably be detected,
 at present dictionaries are wrapped in a single element tuple (`{dict()}`).
 A dictionary list is of type: `[{dict()}]`.
+
+The name of this is module  `hxw_mustache` to avoid namespace conflics with
+rebar which also contains its own mustache.erl.
